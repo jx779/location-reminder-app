@@ -1,73 +1,121 @@
-import auth from "@react-native-firebase/auth";
-import { router } from 'expo-router';
-import { JSX, useState } from 'react';
+import React, { useState } from "react";
 import {
   Button,
   ImageBackground,
+  Modal,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
+  TextInput,
   TouchableOpacity,
-  View
-} from 'react-native';
+  View,
+  Switch,
+} from "react-native";
+import { useRouter } from "expo-router";
+import MapScreen from "./map"; // Adjust path if needed
 
 type Reminder = {
   id: number;
   title: string;
   category: string;
   isActive: boolean;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
 };
 
 const categoryColors: Record<string, string> = {
-  Travel: '#d2e7ed',
-  Events: '#fce1f4',
-  Work: '#d4efc2',
+  Travel: "#d2e7ed",
+  Events: "#fce1f4",
+  Work: "#d4efc2",
 };
 
-const categories: string[] = ['Travel', 'Events', 'Work'];
+const categories: string[] = ["Travel", "Events", "Work"];
 
 function getColorForCategory(category: string): string {
   return categoryColors[category];
 }
 
 export default function RemindersScreen(): JSX.Element {
+  const router = useRouter();
+
   const [reminders, setReminders] = useState<Reminder[]>([
-    { id: 1, title: 'Home', category: 'Travel', isActive: true },
-    { id: 2, title: 'Team meeting at 10am', category: 'Work', isActive: false },
-    { id: 3, title: 'Birthday party on Saturday', category: 'Events', isActive: true },
+    { id: 1, title: "Home", category: "Travel", isActive: true },
+    { id: 2, title: "Team meeting at 10am", category: "Work", isActive: false },
+    { id: 3, title: "Birthday party on Saturday", category: "Events", isActive: true },
   ]);
 
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [newReminderTitle, setNewReminderTitle] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // For showing the Map modal
+  const [isMapVisible, setMapVisible] = useState(false);
+  // Store the reminder ID we want to assign a location for
+  const [reminderToAssign, setReminderToAssign] = useState<number | null>(null);
+
   const toggleReminder = (id: number): void => {
-    setReminders(prev =>
-      prev.map(reminder =>
+    setReminders((prev) =>
+      prev.map((reminder) =>
         reminder.id === id ? { ...reminder, isActive: !reminder.isActive } : reminder
       )
     );
   };
 
-  const addReminder = (category: string): void => {
-    if (!categoryColors[category]) return;
-
-    const newReminder = {
-      id: Date.now(),
-      title: 'New Reminder',
-      category,
-      isActive: true,
-    };
-    setReminders(prev => [...prev, newReminder]);
+  const addReminder = (): void => {
+    if (newReminderTitle.trim() && selectedCategory) {
+      const newReminder = {
+        id: Date.now(),
+        title: newReminderTitle,
+        category: selectedCategory,
+        isActive: true,
+      };
+      setReminders((prev) => [...prev, newReminder]);
+      setModalVisible(false);
+      setNewReminderTitle("");
+      setSelectedCategory(null);
+    }
   };
 
-  const renderReminder = ({ item }: { item: Reminder }): JSX.Element => (
-    <View style={styles.reminderBox}>
-      <Text style={styles.title}>{item.title}</Text>
+  // Called from MapScreen when user picks a location
+  const onAssignLocation = (
+    reminderId: number,
+    location: { latitude: number; longitude: number }
+  ) => {
+    setReminders((prev) =>
+      prev.map((r) => (r.id === reminderId ? { ...r, location } : r))
+    );
+    setMapVisible(false);
+    setReminderToAssign(null);
+  };
+
+  const renderReminder = ({ item }: { item: Reminder }) => (
+    <View style={styles.reminderBox} key={item.id}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.title}>{item.title}</Text>
+        {item.location && (
+          <Text style={styles.locationText}>
+            Location: {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
+          </Text>
+        )}
+      </View>
       <Switch value={item.isActive} onValueChange={() => toggleReminder(item.id)} />
+      <TouchableOpacity
+        style={styles.assignLocationButton}
+        onPress={() => {
+          setReminderToAssign(item.id);
+          setMapVisible(true);
+        }}
+      >
+        <Text style={{ color: "blue" }}>Set Location</Text>
+      </TouchableOpacity>
     </View>
   );
 
   return (
     <ImageBackground
-      source={require('../../assets/images/ImageBackground.jpg')}
+      source={require("../../assets/images/ImageBackground.jpg")}
       style={styles.container}
       imageStyle={{ opacity: 0.2 }}
       resizeMode="cover"
@@ -75,23 +123,30 @@ export default function RemindersScreen(): JSX.Element {
       <Text style={styles.header}>Reminders</Text>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 20 }}>
-        {categories.map(category => {
-          const categoryReminders = reminders.filter(r => r.category === category);
+        {categories.map((category) => {
+          const categoryReminders = reminders.filter((r) => r.category === category);
 
           return (
-            <View key={category} style={[styles.categoryBox, { backgroundColor: getColorForCategory(category) }]}>
+            <View
+              key={category}
+              style={[styles.categoryBox, { backgroundColor: getColorForCategory(category) }]}
+            >
               <View style={styles.categorySection}>
                 <View style={styles.categoryHeader}>
                   <Text style={styles.categoryTitle}>{category}</Text>
-                  <TouchableOpacity onPress={() => addReminder(category)} style={styles.addButton}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setModalVisible(true);
+                      setSelectedCategory(category);
+                    }}
+                    style={styles.addButton}
+                  >
                     <Text style={styles.addButtonText}>+</Text>
                   </TouchableOpacity>
                 </View>
 
                 {categoryReminders.length > 0 ? (
-                  categoryReminders.map(item => (
-                    <View key={item.id}>{renderReminder({ item })}</View>
-                  ))
+                  categoryReminders.map((item) => <View key={item.id}>{renderReminder({ item })}</View>)
                 ) : (
                   <Text style={styles.emptyText}>No reminders in this category.</Text>
                 )}
@@ -99,18 +154,39 @@ export default function RemindersScreen(): JSX.Element {
             </View>
           );
         })}
-        <Button
-          title="Logout"
-          onPress={async () => {
-            try {
-              await auth().signOut();
-              router.replace('/(auth)');
-            } catch (error) {
-              console.error('Logout error:', error);
-            }
-          }}
-        />
       </ScrollView>
+
+      {/* Modal for adding reminders */}
+      {isModalVisible && (
+        <Modal
+          transparent={true}
+          animationType="slide"
+          visible={isModalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalHeader}>Add Reminder</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter reminder title"
+                value={newReminderTitle}
+                onChangeText={setNewReminderTitle}
+              />
+              <Button title="Add Reminder" onPress={addReminder} />
+              <Button title="Cancel" onPress={() => setModalVisible(false)} />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Modal for MapScreen */}
+      {isMapVisible && reminderToAssign !== null && (
+        <Modal visible={isMapVisible} animationType="slide" onRequestClose={() => setMapVisible(false)}>
+          <MapScreen reminders={reminders} onAssignLocation={onAssignLocation} />
+          <Button title="Close Map" onPress={() => setMapVisible(false)} />
+        </Modal>
+      )}
     </ImageBackground>
   );
 }
@@ -123,7 +199,7 @@ const styles = StyleSheet.create({
   },
   header: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 20,
   },
   categoryBox: {
@@ -137,14 +213,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 5,
   },
   categoryTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   addButton: {
     borderRadius: 15,
@@ -152,24 +228,56 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   addButtonText: {
-    color: 'black',
+    color: "black",
     fontSize: 30,
   },
   reminderBox: {
-    backgroundColor: '#f2f2f2',
+    backgroundColor: "#f2f2f2",
     padding: 15,
     borderRadius: 10,
     marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   title: {
     fontSize: 18,
   },
+  locationText: {
+    fontSize: 12,
+    color: "gray",
+  },
   emptyText: {
-    color: 'gray',
-    fontStyle: 'italic',
+    color: "gray",
+    fontStyle: "italic",
     paddingVertical: 10,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    padding: 20,
+    borderRadius: 10,
+    width: "80%",
+    alignItems: "center",
+  },
+  modalHeader: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  input: {
+    width: "100%",
+    padding: 10,
+    borderWidth: 1,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  assignLocationButton: {
+    marginLeft: 10,
   },
 });
