@@ -1,5 +1,5 @@
 import * as Location from "expo-location";
-import React, { JSX, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -10,17 +10,41 @@ import {
   FlatList,
 } from "react-native";
 import MapView, { Marker, Region, MapPressEvent } from "react-native-maps";
-import { getReminders, updateReminderLocation, Reminder } from "../../utils/api"; // Adjust path if needed
 
-export default function MapScreen(): JSX.Element {
+// --- Type Definitions ---
+type Reminder = {
+  id: string;
+  title: string;
+  category: string;
+  isActive: boolean;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
+};
+
+type MapScreenProps = {
+  reminders: Reminder[];
+  onAssignLocation: (
+    reminderId: string,
+    location: { latitude: number; longitude: number }
+  ) => Promise<void>;
+  reminderToAssign: string | null;
+};
+
+// --- Component ---
+export default function MapScreen({
+  reminders,
+  onAssignLocation,
+  reminderToAssign,
+}: MapScreenProps): React.ReactElement {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isModalVisible, setModalVisible] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Request location permission + fetch current location
+  // Request permission and fetch user location
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -40,36 +64,18 @@ export default function MapScreen(): JSX.Element {
     })();
   }, []);
 
-  // Fetch reminders from backend
-  useEffect(() => {
-    getReminders()
-      .then(setReminders)
-      .catch((err) => console.error("❌ Failed to load reminders:", err));
-  }, []);
-
   const handleMapPress = (event: MapPressEvent) => {
     const { latitude, longitude } = event.nativeEvent.coordinate;
     setSelectedLocation({ latitude, longitude });
     setModalVisible(true);
   };
 
-  const assignLocationToReminder = async (reminderId: string) => {
+  const handleAssignLocation = async (reminderId: string) => {
     if (!selectedLocation) return;
 
-    try {
-      const updated = await updateReminderLocation(reminderId, selectedLocation);
-      console.log("✅ Reminder location updated:", updated);
-
-      // Refresh reminders after update
-      setReminders((prev) =>
-        prev.map((r) => (r._id === reminderId ? { ...r, location: selectedLocation } : r))
-      );
-
-      setModalVisible(false);
-      setSelectedLocation(null);
-    } catch (err) {
-      console.error("❌ Failed to update reminder:", err);
-    }
+    await onAssignLocation(reminderId, selectedLocation);
+    setSelectedLocation(null);
+    setModalVisible(false);
   };
 
   if (!region) {
@@ -90,7 +96,7 @@ export default function MapScreen(): JSX.Element {
         showsUserLocation
         onPress={handleMapPress}
       >
-        {/* User’s location marker */}
+        {/* User marker */}
         <Marker
           coordinate={{
             latitude: region.latitude,
@@ -99,12 +105,12 @@ export default function MapScreen(): JSX.Element {
           title="You are here"
         />
 
-        {/* All reminders with locations */}
+        {/* All reminders with saved location */}
         {reminders
           .filter((r) => r.location)
           .map((r) => (
             <Marker
-              key={r._id}
+              key={r.id}
               coordinate={{
                 latitude: r.location!.latitude,
                 longitude: r.location!.longitude,
@@ -115,30 +121,42 @@ export default function MapScreen(): JSX.Element {
             />
           ))}
 
-        {/* Temp selected marker */}
+        {/* Selected marker preview */}
         {selectedLocation && (
-          <Marker coordinate={selectedLocation} title="Selected" pinColor="blue" />
+          <Marker
+            coordinate={selectedLocation}
+            title="Selected"
+            pinColor="blue"
+          />
         )}
       </MapView>
 
       {/* Modal to assign selected location to a reminder */}
-      <Modal visible={isModalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+      <Modal
+        visible={isModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+      >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalHeader}>Assign to Reminder</Text>
             <FlatList
               data={reminders}
-              keyExtractor={(item) => item._id}
+              keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.reminderItem}
-                  onPress={() => assignLocationToReminder(item._id)}
+                  onPress={() => handleAssignLocation(item.id)}
                 >
                   <Text>{item.title}</Text>
                 </TouchableOpacity>
               )}
             />
-            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.cancelButton}>
+            <TouchableOpacity
+              onPress={() => setModalVisible(false)}
+              style={styles.cancelButton}
+            >
               <Text style={{ color: "red" }}>Cancel</Text>
             </TouchableOpacity>
           </View>
@@ -148,6 +166,7 @@ export default function MapScreen(): JSX.Element {
   );
 }
 
+// --- Styles ---
 const styles = StyleSheet.create({
   map: {
     flex: 1,

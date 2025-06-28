@@ -15,7 +15,8 @@ import {
 import { useRouter } from "expo-router";
 import MapScreen from "./map";
 import { API_ENDPOINTS } from "../../config/api";
-const API_URL = "http://172.20.10.2:5000/api/reminders";
+const API_URL = "http://10.0.2.2:5000/api/reminders";
+//const API_URL = "http://172.20.10.2:5000/api/reminders";
 
 type Reminder = {
   id: string;

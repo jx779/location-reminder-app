@@ -1,5 +1,4 @@
-import { auth } from "../../firebaseConfig";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import auth from '@react-native-firebase/auth'; // ✅ Native SDK
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -34,11 +33,12 @@ const SignUpScreen = () => {
         return;
         }
         try {
-            await createUserWithEmailAndPassword(auth, email, password).then(() => {
+            await auth().createUserWithEmailAndPassword(email, password).then(() => {
                 Alert.alert("Success", "User created successfully", [
                     {text: "OK", onPress: () => router.replace('/')}
                 ]);
             });
+
         } catch (err: any) {
             Alert.alert("Error", err.message);
             console.log(err);

@@ -1,5 +1,4 @@
-import { auth } from '../../firebaseConfig'; // adjust path based on your folder structure
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import auth from '@react-native-firebase/auth';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -27,7 +26,7 @@ const LoginScreen = () => {
   const loginFn = async () => {
     setLoading(true)
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await auth().signInWithEmailAndPassword(email, password);
       router.replace('/(tabs)');
       Alert.alert('Welcome!');
     } catch (err: any) {
