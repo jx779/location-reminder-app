@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Button,
   ImageBackground,
@@ -10,12 +10,15 @@ import {
   TouchableOpacity,
   View,
   Switch,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import MapScreen from "./map"; // Adjust path if needed
+import MapScreen from "./map";
+import { API_ENDPOINTS } from "../../config/api";
+const API_URL = "http://172.20.10.2:5000/api/reminders";
 
 type Reminder = {
-  id: number;
+  id: string;
   title: string;
   category: string;
   isActive: boolean;
@@ -37,55 +40,150 @@ function getColorForCategory(category: string): string {
   return categoryColors[category];
 }
 
-export default function RemindersScreen(): JSX.Element {
+export default function RemindersScreen(): React.ReactElement {
   const router = useRouter();
 
-  const [reminders, setReminders] = useState<Reminder[]>([
-    { id: 1, title: "Home", category: "Travel", isActive: true },
-    { id: 2, title: "Team meeting at 10am", category: "Work", isActive: false },
-    { id: 3, title: "Birthday party on Saturday", category: "Events", isActive: true },
-  ]);
-
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalVisible, setModalVisible] = useState(false);
   const [newReminderTitle, setNewReminderTitle] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-  // For showing the Map modal
   const [isMapVisible, setMapVisible] = useState(false);
-  // Store the reminder ID we want to assign a location for
-  const [reminderToAssign, setReminderToAssign] = useState<number | null>(null);
+  const [reminderToAssign, setReminderToAssign] = useState<string | null>(null);
 
-  const toggleReminder = (id: number): void => {
-    setReminders((prev) =>
-      prev.map((reminder) =>
-        reminder.id === id ? { ...reminder, isActive: !reminder.isActive } : reminder
-      )
-    );
-  };
+  // Load reminders from backend on component mount
+  useEffect(() => {
+    loadReminders();
+  }, []);
 
-  const addReminder = (): void => {
-    if (newReminderTitle.trim() && selectedCategory) {
-      const newReminder = {
-        id: Date.now(),
-        title: newReminderTitle,
-        category: selectedCategory,
-        isActive: true,
-      };
-      setReminders((prev) => [...prev, newReminder]);
-      setModalVisible(false);
-      setNewReminderTitle("");
-      setSelectedCategory(null);
+  const loadReminders = async (): Promise<void> => {
+    try {
+      const response = await fetch(API_ENDPOINTS.REMINDERS);
+      if (response.ok) {
+        const data = await response.json();
+        const formattedReminders = data.map((reminder: any) => ({
+          ...reminder,
+          id: reminder._id,
+        }));
+        setReminders(formattedReminders);
+      } else {
+        console.error("Failed to load reminders");
+        Alert.alert("Error", "Failed to load reminders");
+      }
+    } catch (error) {
+      console.error("Error loading reminders:", error);
+      Alert.alert("Error", "Failed to connect to server");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Called from MapScreen when user picks a location
-  const onAssignLocation = (
-    reminderId: number,
+  const toggleReminder = async (id: string): Promise<void> => {
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder) return;
+
+    const updatedReminder = { ...reminder, isActive: !reminder.isActive };
+    
+    // Optimistic update
+    setReminders((prev) =>
+      prev.map((r) => (r.id === id ? updatedReminder : r))
+    );
+
+    try {
+      const response = await fetch(API_ENDPOINTS.REMINDER_BY_ID(id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !reminder.isActive }),
+      });
+
+      if (!response.ok) {
+        // Revert on failure
+        setReminders((prev) =>
+          prev.map((r) => (r.id === id ? reminder : r))
+        );
+        Alert.alert("Error", "Failed to update reminder");
+      }
+    } catch (error) {
+      console.error("Error updating reminder:", error);
+      // Revert on failure
+      setReminders((prev) =>
+        prev.map((r) => (r.id === id ? reminder : r))
+      );
+      Alert.alert("Error", "Failed to connect to server");
+    }
+  };
+
+  const addReminder = async (): Promise<void> => {
+    if (!newReminderTitle.trim() || !selectedCategory) {
+      Alert.alert("Error", "Please enter a title and select a category");
+      return;
+    }
+
+    const newReminder = {
+      title: newReminderTitle.trim(),
+      category: selectedCategory,
+      isActive: true,
+    };
+
+    try {
+      const response = await fetch(API_ENDPOINTS.REMINDERS, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newReminder),
+      });
+
+      if (response.ok) {
+        const savedReminder = await response.json();
+        setReminders((prev) => [...prev, { ...savedReminder, id: savedReminder._id }]);
+        console.log("✅ Reminder saved:", savedReminder);
+        
+        setModalVisible(false);
+        setNewReminderTitle("");
+        setSelectedCategory(null);
+      } else {
+        Alert.alert("Error", "Failed to save reminder");
+      }
+    } catch (error) {
+      console.error("❌ Failed to save reminder:", error);
+      Alert.alert("Error", "Failed to connect to server");
+    }
+  };
+
+  const onAssignLocation = async (
+    reminderId: string,
     location: { latitude: number; longitude: number }
   ) => {
+    // Optimistic update
     setReminders((prev) =>
       prev.map((r) => (r.id === reminderId ? { ...r, location } : r))
     );
+
+    try {
+      const response = await fetch(API_ENDPOINTS.REMINDER_BY_ID(reminderId), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log("✅ Location updated in backend:", result);
+      } else {
+        Alert.alert("Error", "Failed to update location");
+        // Revert the optimistic update
+        setReminders((prev) =>
+          prev.map((r) => (r.id === reminderId ? { ...r, location: undefined } : r))
+        );
+      }
+    } catch (error) {
+      console.error("❌ Failed to update location:", error);
+      Alert.alert("Error", "Failed to connect to server");
+      // Revert the optimistic update
+      setReminders((prev) =>
+        prev.map((r) => (r.id === reminderId ? { ...r, location: undefined } : r))
+      );
+    }
+
     setMapVisible(false);
     setReminderToAssign(null);
   };
@@ -96,7 +194,7 @@ export default function RemindersScreen(): JSX.Element {
         <Text style={styles.title}>{item.title}</Text>
         {item.location && (
           <Text style={styles.locationText}>
-            Location: {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
+            📍 {item.location.latitude.toFixed(4)}, {item.location.longitude.toFixed(4)}
           </Text>
         )}
       </View>
@@ -108,10 +206,20 @@ export default function RemindersScreen(): JSX.Element {
           setMapVisible(true);
         }}
       >
-        <Text style={{ color: "blue" }}>Set Location</Text>
+        <Text style={styles.assignLocationText}>
+          {item.location ? "📍" : "📍+"}
+        </Text>
       </TouchableOpacity>
     </View>
   );
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Loading reminders...</Text>
+      </View>
+    );
+  }
 
   return (
     <ImageBackground
@@ -157,36 +265,54 @@ export default function RemindersScreen(): JSX.Element {
       </ScrollView>
 
       {/* Modal for adding reminders */}
-      {isModalVisible && (
-        <Modal
-          transparent={true}
-          animationType="slide"
-          visible={isModalVisible}
-          onRequestClose={() => setModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalHeader}>Add Reminder</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter reminder title"
-                value={newReminderTitle}
-                onChangeText={setNewReminderTitle}
-              />
-              <Button title="Add Reminder" onPress={addReminder} />
-              <Button title="Cancel" onPress={() => setModalVisible(false)} />
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={isModalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalHeader}>Add Reminder</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter reminder title"
+              value={newReminderTitle}
+              onChangeText={setNewReminderTitle}
+            />
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity style={styles.button} onPress={addReminder}>
+                <Text style={styles.buttonText}>Add Reminder</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.button, styles.cancelButton]} 
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.buttonText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-      )}
+        </View>
+      </Modal>
 
       {/* Modal for MapScreen */}
-      {isMapVisible && reminderToAssign !== null && (
-        <Modal visible={isMapVisible} animationType="slide" onRequestClose={() => setMapVisible(false)}>
-          <MapScreen reminders={reminders} onAssignLocation={onAssignLocation} />
-          <Button title="Close Map" onPress={() => setMapVisible(false)} />
-        </Modal>
-      )}
+      <Modal 
+        visible={isMapVisible} 
+        animationType="slide" 
+        onRequestClose={() => setMapVisible(false)}
+      >
+        <MapScreen 
+          reminders={reminders} 
+          onAssignLocation={onAssignLocation}
+          reminderToAssign={reminderToAssign}
+        />
+        <TouchableOpacity 
+          style={styles.closeMapButton} 
+          onPress={() => setMapVisible(false)}
+        >
+          <Text style={styles.buttonText}>Close Map</Text>
+        </TouchableOpacity>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -197,10 +323,16 @@ const styles = StyleSheet.create({
     paddingTop: 80,
     paddingHorizontal: 5,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   header: {
     fontSize: 20,
     fontWeight: "bold",
     marginBottom: 20,
+    textAlign: "center",
   },
   categoryBox: {
     padding: 15,
@@ -246,6 +378,7 @@ const styles = StyleSheet.create({
   locationText: {
     fontSize: 12,
     color: "gray",
+    marginTop: 2,
   },
   emptyText: {
     color: "gray",
@@ -277,7 +410,37 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginBottom: 10,
   },
+  buttonContainer: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  button: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 5,
+  },
+  cancelButton: {
+    backgroundColor: "#FF3B30",
+  },
+  buttonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
   assignLocationButton: {
     marginLeft: 10,
+    padding: 8,
+  },
+  assignLocationText: {
+    fontSize: 18,
+  },
+  closeMapButton: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 5,
   },
 });
