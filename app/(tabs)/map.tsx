@@ -106,7 +106,7 @@ export default function MapScreen({
         />
 
         {/* All reminders with saved location */}
-        {reminders
+        {(reminders ?? [])
           .filter((r) => r.location)
           .map((r) => (
             <Marker
