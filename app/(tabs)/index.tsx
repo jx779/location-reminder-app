@@ -14,6 +14,7 @@ import {
   ActivityIndicator
 } from "react-native";
 import { API_ENDPOINTS } from "../../config/api";
+import { NotificationService } from "../../services/notificationService";
 import MapScreen from "./map";
 
 type Reminder = {
@@ -51,14 +52,63 @@ export default function RemindersScreen(): React.ReactElement {
   const [isMapVisible, setMapVisible] = useState(false);
   const [reminderToAssign, setReminderToAssign] = useState<string | null>(null);
   
-  // New state for delete modal
+  // Delete modal state
   const [isDeleteModalVisible, setDeleteModalVisible] = useState(false);
   const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
 
-  // Load reminders on component mount
+  // Location tracking state
+  const [isLocationTrackingEnabled, setLocationTrackingEnabled] = useState(false);
+  const [isTrackingLoading, setTrackingLoading] = useState(false);
+
+  // Load reminders and check tracking status on component mount
   useEffect(() => {
     loadReminders();
+    checkTrackingStatus();
   }, []);
+
+  // Check tracking status
+  const checkTrackingStatus = async () => {
+    const isTracking = await NotificationService.getTrackingStatus();
+    setLocationTrackingEnabled(isTracking);
+  };
+
+  // Toggle location tracking
+  const toggleLocationTracking = async () => {
+    setTrackingLoading(true);
+    
+    try {
+      if (isLocationTrackingEnabled) {
+        await NotificationService.stopLocationTracking();
+        setLocationTrackingEnabled(false);
+        Alert.alert("Success", "Location tracking disabled");
+      } else {
+        const success = await NotificationService.startLocationTracking();
+        if (success) {
+          setLocationTrackingEnabled(true);
+          Alert.alert(
+            "Success", 
+            "Location tracking enabled! You'll get notifications when near your reminders."
+          );
+        } else {
+          Alert.alert(
+            "Error", 
+            "Failed to enable location tracking. Please check permissions in Settings."
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error toggling location tracking:", error);
+      Alert.alert("Error", "Failed to toggle location tracking");
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
+
+  // Test notification function
+  const testNotification = async () => {
+    await NotificationService.sendTestNotification();
+    Alert.alert("Test Sent", "Check if you received a test notification!");
+  };
 
   // API Functions
   const loadReminders = async (): Promise<void> => {
@@ -191,7 +241,7 @@ export default function RemindersScreen(): React.ReactElement {
     }
   };
 
-  // New delete function
+  // Delete reminder function
   const deleteReminder = async (id: string): Promise<void> => {
     try {
       console.log("🔄 Deleting reminder:", id);
@@ -341,6 +391,37 @@ export default function RemindersScreen(): React.ReactElement {
       resizeMode="cover"
     >
       <Text style={styles.header}>Reminders</Text>
+
+      {/* Location Tracking Settings */}
+      <View style={styles.settingsContainer}>
+        <View style={styles.settingsRow}>
+          <View style={styles.settingsTextContainer}>
+            <Text style={styles.settingsTitle}>Location Notifications</Text>
+            <Text style={styles.settingsSubtitle}>
+              Get notified when near your reminders
+            </Text>
+          </View>
+          {isTrackingLoading ? (
+            <ActivityIndicator size="small" color="#007AFF" />
+          ) : (
+            <Switch
+              value={isLocationTrackingEnabled}
+              onValueChange={toggleLocationTracking}
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={isLocationTrackingEnabled ? "#f5dd4b" : "#f4f3f4"}
+            />
+          )}
+        </View>
+        
+        {/* Test button */}
+        <TouchableOpacity 
+          style={styles.testButton} 
+          onPress={testNotification}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.testButtonText}>Test Notification</Text>
+        </TouchableOpacity>
+      </View>
 
       <ScrollView 
         contentContainerStyle={styles.scrollContainer}
@@ -502,6 +583,54 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     textAlign: "center",
     color: "#333",
+  },
+  // Settings container styles
+  settingsContainer: {
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 15,
+    padding: 15,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  settingsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  settingsTextContainer: {
+    flex: 1,
+    marginRight: 15,
+  },
+  settingsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  settingsSubtitle: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  testButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: "center",
+  },
+  testButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
   },
   scrollContainer: {
     paddingHorizontal: 15,

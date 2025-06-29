@@ -52,6 +52,7 @@ export default function MapScreen({
   const [region, setRegion] = useState<Region | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isModalVisible, setModalVisible] = useState(false);
+  const [selectedProximity, setSelectedProximity] = useState<number>(10); // Default 10 meters
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Search functionality state
@@ -95,14 +96,53 @@ export default function MapScreen({
     setIsSearching(true);
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1&countrycodes=&dedupe=1`,
+        {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'LocationReminderApp/1.0',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        }
       );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Response is not JSON format');
+      }
+
       const data = await response.json();
+      
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format');
+      }
+
       setSearchResults(data);
       setShowSearchResults(data.length > 0);
     } catch (error) {
       console.error("Search error:", error);
-      Alert.alert("Search Error", "Failed to search location. Please try again.");
+      
+      let errorMessage = "Failed to search location. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes('JSON')) {
+          errorMessage = "Search service temporarily unavailable. Please try again later.";
+        } else if (error.message.includes('HTTP')) {
+          errorMessage = "Network error. Please check your connection.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      Alert.alert("Search Error", errorMessage);
+      
+      setSearchResults([]);
+      setShowSearchResults(false);
     } finally {
       setIsSearching(false);
     }
@@ -112,12 +152,10 @@ export default function MapScreen({
   const handleSearchInput = (text: string) => {
     setSearchQuery(text);
     
-    // Clear previous timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
 
-    // Set new timeout for debounced search
     searchTimeoutRef.current = setTimeout(() => {
       searchLocation(text);
     }, 500);
@@ -128,30 +166,25 @@ export default function MapScreen({
     const latitude = parseFloat(result.lat);
     const longitude = parseFloat(result.lon);
 
-    // Update map region with larger delta for better visibility
     const newRegion = {
       latitude,
       longitude,
-      latitudeDelta: 0.005,
-      longitudeDelta: 0.005,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
     };
 
-    // Update region state first
     setRegion(newRegion);
-    
-    // Then animate to the new region
-    setTimeout(() => {
-      mapRef.current?.animateToRegion(newRegion, 1500);
-    }, 100);
 
-    // Add search marker
     setSearchMarker({
       latitude,
       longitude,
-      title: result.display_name.split(',')[0], // Get the first part of the address
+      title: result.display_name.split(',')[0],
     });
 
-    // Clear search UI completely
+    setTimeout(() => {
+      mapRef.current?.animateToRegion(newRegion, 1000);
+    }, 50);
+
     setSearchQuery(result.display_name.split(',')[0]);
     setSearchResults([]);
     setShowSearchResults(false);
@@ -176,30 +209,51 @@ export default function MapScreen({
 
   // Handle search input blur
   const handleSearchBlur = () => {
-    // Delay hiding results to allow tapping on them
     setTimeout(() => {
       setShowSearchResults(false);
     }, 200);
   };
 
+  // FIXED: Enhanced map press handler - always show modal
   const handleMapPress = (event: MapPressEvent) => {
+    console.log("Map pressed!", event.nativeEvent.coordinate);
+    console.log("showSearchResults:", showSearchResults);
+    
     // Don't handle map press if search results are showing
     if (showSearchResults) {
+      console.log("Search results showing, hiding them");
       setShowSearchResults(false);
       return;
     }
 
     const { latitude, longitude } = event.nativeEvent.coordinate;
+    console.log("Setting selected location:", { latitude, longitude });
+    
     setSelectedLocation({ latitude, longitude });
+    console.log("Setting modal visible to true");
     setModalVisible(true);
   };
 
   const handleAssignLocation = async (reminderId: string) => {
     if (!selectedLocation) return;
 
-    await onAssignLocation(reminderId, selectedLocation);
+    // Include proximity in the location data
+    const locationWithProximity = {
+      ...selectedLocation,
+      proximity: selectedProximity
+    };
+
+    await onAssignLocation(reminderId, locationWithProximity);
     setSelectedLocation(null);
     setModalVisible(false);
+    setSelectedProximity(10); // Reset to default
+  };
+
+  // Debug: Add a test button to manually trigger modal
+  const testModal = () => {
+    console.log("Test modal button pressed");
+    setSelectedLocation({ latitude: 37.7749, longitude: -122.4194 });
+    setModalVisible(true);
   };
 
   if (!region) {
@@ -214,6 +268,14 @@ export default function MapScreen({
 
   return (
     <View style={{ flex: 1 }}>
+      {/* Debug button - remove this once working */}
+      <TouchableOpacity 
+        style={styles.debugButton} 
+        onPress={testModal}
+      >
+        <Text style={styles.debugButtonText}>Test Modal</Text>
+      </TouchableOpacity>
+
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
@@ -264,20 +326,12 @@ export default function MapScreen({
         ref={mapRef}
         style={styles.map}
         region={region}
-        showsUserLocation
+        showsUserLocation={true}
         onPress={handleMapPress}
         onRegionChangeComplete={(newRegion) => setRegion(newRegion)}
-        pointerEvents={showSearchResults ? "none" : "auto"}
+        // FIXED: Removed the pointerEvents restriction that was blocking map taps
+        // pointerEvents={showSearchResults ? "none" : "auto"}
       >
-        {/* User marker */}
-        <Marker
-          coordinate={{
-            latitude: region.latitude,
-            longitude: region.longitude,
-          }}
-          title="You are here"
-        />
-
         {/* Search result marker */}
         {searchMarker && (
           <Marker
@@ -317,34 +371,91 @@ export default function MapScreen({
         )}
       </MapView>
 
-      {/* Modal to assign selected location to a reminder */}
+      {/* Modal to assign selected location to a reminder with proximity selection */}
       <Modal
         visible={isModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={() => {
+          console.log("Modal close requested");
+          setModalVisible(false);
+        }}
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalHeader}>Assign to Reminder</Text>
-            <FlatList
-              data={reminders}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.reminderItem}
-                  onPress={() => handleAssignLocation(item.id)}
-                >
-                  <Text>{item.title}</Text>
-                </TouchableOpacity>
-              )}
-            />
-            <TouchableOpacity
-              onPress={() => setModalVisible(false)}
-              style={styles.cancelButton}
-            >
-              <Text style={{ color: "red" }}>Cancel</Text>
-            </TouchableOpacity>
+            <Text style={styles.modalHeader}>Set Location Reminder</Text>
+            
+            {/* Location Info */}
+            <View style={styles.locationInfo}>
+              <Text style={styles.locationText}>
+                📍 Location: {selectedLocation?.latitude.toFixed(6)}, {selectedLocation?.longitude.toFixed(6)}
+              </Text>
+            </View>
+
+            {/* Proximity Selection */}
+            <View style={styles.proximitySection}>
+              <Text style={styles.sectionTitle}>Select Proximity Range</Text>
+              <Text style={styles.proximityDescription}>
+                You'll be notified when you're within this distance
+              </Text>
+              
+              <View style={styles.proximityOptions}>
+                {[1, 10, 25, 50].map((distance) => (
+                  <TouchableOpacity
+                    key={distance}
+                    style={[
+                      styles.proximityOption,
+                      selectedProximity === distance && styles.selectedProximityOption
+                    ]}
+                    onPress={() => setSelectedProximity(distance)}
+                  >
+                    <Text style={[
+                      styles.proximityOptionText,
+                      selectedProximity === distance && styles.selectedProximityOptionText
+                    ]}>
+                      {distance}m
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Reminder Selection */}
+            <View style={styles.reminderSelection}>
+              <Text style={styles.sectionTitle}>Choose Reminder</Text>
+              <FlatList
+                data={reminders}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.reminderItem}
+                    onPress={() => handleAssignLocation(item.id)}
+                  >
+                    <View style={styles.reminderItemContent}>
+                      <Text style={styles.reminderTitle}>{item.title}</Text>
+                      <Text style={styles.reminderCategory}>{item.category}</Text>
+                    </View>
+                    <Text style={styles.selectText}>Select →</Text>
+                  </TouchableOpacity>
+                )}
+                style={styles.reminderList}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                onPress={() => {
+                  console.log("Cancel button pressed");
+                  setModalVisible(false);
+                  setSelectedProximity(10); // Reset
+                }}
+                style={styles.cancelButton}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -440,23 +551,139 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: "white",
-    borderRadius: 10,
+    borderRadius: 15,
     padding: 20,
-    maxHeight: "80%",
+    maxHeight: "85%",
   },
   modalHeader: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 15,
+    marginBottom: 20,
+    textAlign: "center",
+    color: "#333",
+  },
+  locationInfo: {
+    backgroundColor: "#f8f9fa",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  locationText: {
+    fontSize: 14,
+    color: "#666",
     textAlign: "center",
   },
-  reminderItem: {
+  proximitySection: {
+    marginBottom: 25,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+    color: "#333",
+  },
+  proximityDescription: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 15,
+  },
+  proximityOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+  },
+  proximityOption: {
     paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
+    backgroundColor: "#f8f9fa",
+    minWidth: 60,
+    alignItems: "center",
+  },
+  selectedProximityOption: {
+    borderColor: "#007AFF",
+    backgroundColor: "#007AFF",
+  },
+  proximityOptionText: {
+    fontSize: 14,
+    color: "#666",
+    fontWeight: "500",
+  },
+  selectedProximityOptionText: {
+    color: "white",
+  },
+  reminderSelection: {
+    marginBottom: 20,
+  },
+  reminderList: {
+    maxHeight: 150,
+  },
+  reminderItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 15,
     borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
+    borderBottomColor: "#f0f0f0",
+    backgroundColor: "#fafafa",
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  reminderItemContent: {
+    flex: 1,
+  },
+  reminderTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#333",
+  },
+  reminderCategory: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  selectText: {
+    fontSize: 14,
+    color: "#007AFF",
+    fontWeight: "500",
+  },
+  actionButtons: {
+    alignItems: "center",
   },
   cancelButton: {
-    marginTop: 15,
-    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+    backgroundColor: "#f8f9fa",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  cancelButtonText: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  // Debug styles - remove these once working
+  debugButton: {
+    position: "absolute",
+    top: 200,
+    right: 20,
+    backgroundColor: "#007AFF",
+    padding: 10,
+    borderRadius: 5,
+    zIndex: 1001,
+  },
+  debugButtonText: {
+    color: "white",
+    fontSize: 12,
+  },
+  debugText: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 10,
   },
 });

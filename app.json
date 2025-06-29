@@ -8,10 +8,23 @@
     "scheme": "locationreminderapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "permissions": [
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_BACKGROUND_LOCATION",
+      "ACCESS_COARSE_LOCATION",
+      "NOTIFICATIONS"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.orbital.pingme",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "NSLocationWhenInUseUsageDescription": "This app needs location access to send you reminders when you're near specific locations.",
+      "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs location access to send you reminders when you're near specific locations, even when the app is in the background.",
+      "NSLocationAlwaysUsageDescription": "This app needs background location access to send you location-based reminders.",
+      "UIBackgroundModes": [
+        "location",
+        "background-processing"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -20,7 +33,15 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.orbital.pingme",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -46,7 +67,25 @@
           }
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to send you reminders when you're near specific places.",
+          "locationAlwaysPermission": "Allow $(PRODUCT_NAME) to use your location in the background to send you location-based reminders.",
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to send you reminders when you're near specific places.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#ffffff",
+          "defaultChannel": "default"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
