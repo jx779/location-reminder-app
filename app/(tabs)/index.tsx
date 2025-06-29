@@ -50,6 +50,10 @@ export default function RemindersScreen(): React.ReactElement {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isMapVisible, setMapVisible] = useState(false);
   const [reminderToAssign, setReminderToAssign] = useState<string | null>(null);
+  
+  // New state for delete modal
+  const [isDeleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null);
 
   // Load reminders on component mount
   useEffect(() => {
@@ -187,6 +191,42 @@ export default function RemindersScreen(): React.ReactElement {
     }
   };
 
+  // New delete function
+  const deleteReminder = async (id: string): Promise<void> => {
+    try {
+      console.log("🔄 Deleting reminder:", id);
+      const response = await fetch(API_ENDPOINTS.REMINDER_BY_ID(id), {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        console.log("✅ Reminder deleted successfully");
+        
+        // Remove from local state
+        setReminders((prev) => prev.filter((r) => r.id !== id));
+        
+        // Close delete modal
+        setDeleteModalVisible(false);
+        setSelectedReminder(null);
+        
+        Alert.alert("Success", "Reminder deleted successfully");
+      } else {
+        const errorText = await response.text();
+        console.error("❌ Failed to delete reminder:", errorText);
+        Alert.alert("Error", "Failed to delete reminder");
+      }
+    } catch (error) {
+      console.error("❌ Network error deleting reminder:", error);
+      Alert.alert("Error", "Failed to connect to server");
+    }
+  };
+
+  // Handle reminder press
+  const handleReminderPress = (reminder: Reminder): void => {
+    setSelectedReminder(reminder);
+    setDeleteModalVisible(true);
+  };
+
   const onAssignLocation = async (
     reminderId: string,
     location: { latitude: number; longitude: number }
@@ -234,7 +274,12 @@ export default function RemindersScreen(): React.ReactElement {
 
   // UI Components
   const renderReminder = (item: Reminder) => (
-    <View style={styles.reminderBox} key={item.id}>
+    <TouchableOpacity 
+      style={styles.reminderBox} 
+      key={item.id}
+      onPress={() => handleReminderPress(item)}
+      activeOpacity={0.7}
+    >
       <View style={styles.reminderContent}>
         <Text style={styles.title}>{item.title}</Text>
         {item.location && (
@@ -253,7 +298,8 @@ export default function RemindersScreen(): React.ReactElement {
         />
         <TouchableOpacity
           style={styles.assignLocationButton}
-          onPress={() => {
+          onPress={(e) => {
+            e.stopPropagation(); // Prevent triggering the reminder press
             setReminderToAssign(item.id);
             setMapVisible(true);
           }}
@@ -263,13 +309,18 @@ export default function RemindersScreen(): React.ReactElement {
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   const resetModal = () => {
     setModalVisible(false);
     setNewReminderTitle("");
     setSelectedCategory(null);
+  };
+
+  const resetDeleteModal = () => {
+    setDeleteModalVisible(false);
+    setSelectedReminder(null);
   };
 
   // Loading state
@@ -360,6 +411,42 @@ export default function RemindersScreen(): React.ReactElement {
               <TouchableOpacity 
                 style={[styles.button, styles.cancelButton]} 
                 onPress={resetModal}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.buttonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Reminder Modal */}
+      <Modal
+        transparent={true}
+        animationType="fade"
+        visible={isDeleteModalVisible}
+        onRequestClose={resetDeleteModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalHeader}>Delete Reminder</Text>
+            <Text style={styles.deleteText}>
+              Are you sure you want to delete "{selectedReminder?.title}"?
+            </Text>
+            <Text style={styles.deleteSubtext}>
+              This action cannot be undone.
+            </Text>
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[styles.button, styles.deleteButton]} 
+                onPress={() => selectedReminder && deleteReminder(selectedReminder.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.buttonText}>Delete</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.button} 
+                onPress={resetDeleteModal}
                 activeOpacity={0.8}
               >
                 <Text style={styles.buttonText}>Cancel</Text>
@@ -559,10 +646,25 @@ const styles = StyleSheet.create({
   cancelButton: {
     backgroundColor: "#FF3B30",
   },
+  deleteButton: {
+    backgroundColor: "#FF3B30",
+  },
   buttonText: {
     color: "white",
     fontWeight: "600",
     fontSize: 16,
+  },
+  deleteText: {
+    fontSize: 16,
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  deleteSubtext: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 20,
   },
   closeMapButton: {
     position: "absolute",
